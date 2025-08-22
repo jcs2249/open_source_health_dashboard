@@ -1,0 +1,19 @@
+{
+  "name": "open-source-health-dashboard",
+  "private": true,
+  "scripts": {
+    "lint": "htmlhint index.html",
+    "test": "node tests/smoke.test.js",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "htmlhint": "^1.6.3",
+    "husky": "^9.1.7"
+  },
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
