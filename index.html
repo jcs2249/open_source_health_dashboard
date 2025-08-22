@@ -1,75 +1,148 @@
+<!--Joseph Saponaro 8/22/2025-->
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="utf-8" />
   <title>Open Source Health Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-    .pass { color: green; font-weight: bold; }
-    .fail { color: red; font-weight: bold; }
+    body { font-family: system-ui, Arial, sans-serif; margin: 20px; }
+    h1 { margin: 0 0 10px; font-size: 1.4rem; }
+    form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    input { flex: 1 1 320px; padding: 8px; border: 1px solid #ccc; border-radius: 6px; }
+    button { padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #111; color: #fff; cursor: pointer; }
+    button[disabled] { opacity: .7; cursor: wait; }
+    .err { color: #b00020; margin: 8px 0; display: none; }
+    table { width: 100%; border-collapse: collapse; display: none; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #f6f8fa; }
+    .badge { padding: 2px 8px; border-radius: 999px; font-weight: 600; font-size: .9rem; border: 1px solid; display: inline-block; }
+    .pass { color: #0a7c2f; border-color: #bfe3c0; background: #eefaf0; }
+    .fail { color: #b00020; border-color: #f3b8c1; background: #fff0f3; }
   </style>
 </head>
 <body>
   <h1>Open Source Health Dashboard</h1>
-  <input type="text" id="repoInput" placeholder="Enter GitHub repo (e.g. facebook/react)" />
-  <button onclick="checkRepo()">Check</button>
 
-  <table id="results" style="display:none;">
-    <tr><th>Check</th><th>Status</th></tr>
-    <tr><td>LICENSE</td><td id="license"></td></tr>
-    <tr><td>README.md</td><td id="readme"></td></tr>
-    <tr><td>.gitignore</td><td id="gitignore"></td></tr>
-    <tr><td>Recent Commit (6mo)</td><td id="commit"></td></tr>
-    <tr><td>GitHub Actions</td><td id="actions"></td></tr>
+  <form id="f">
+    <input id="repo" placeholder="owner/repo or https://github.com/owner/repo" autocomplete="off" />
+    <button id="go" type="submit">Check</button>
+  </form>
+
+  <div id="e" class="err"></div>
+
+  <table id="t">
+    <thead><tr><th>Check</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>LICENSE</td><td id="license"></td></tr>
+      <tr><td>README.md</td><td id="readme"></td></tr>
+      <tr><td>.gitignore</td><td id="gitignore"></td></tr>
+      <tr><td>Recent Commit</td><td id="commit"></td></tr>
+      <tr><td>GitHub Actions - Workflows</td><td id="actions"></td></tr>
+    </tbody>
   </table>
 
   <script>
-    async function checkRepo() {
-      const repo = document.getElementById("repoInput").value.trim();
-      if (!repo) return alert("Please enter owner/repo (e.g. facebook/react)");
+    const f = document.getElementById("f");
+    const repoInput = document.getElementById("repo");
+    const btn = document.getElementById("go");
+    const err = document.getElementById("e");
+    const table = document.getElementById("t");
+    const cells = ["license","readme","gitignore","commit","actions"];
 
-      document.getElementById("results").style.display = "table";
+    const badge = ok => {
+      const s = document.createElement("span");
+      s.className = "badge " + (ok ? "pass" : "fail");
+      s.textContent = ok ? "GOOD" : "MISSING";
+      return s;
+    };
 
-      const base = `https://api.github.com/repos/${repo}`;
-      
-      // Helper for marking checks
-      function mark(id, ok) {
-        document.getElementById(id).innerHTML = ok ? '<span class="pass">GOOD</span>' : '<span class="fail">BAD</span>';
+    const parseRepo = (raw) => {
+      const s = raw.trim();
+      if (!s) return null;
+      try {
+        const u = new URL(s);
+        if (u.hostname.includes("github.com")) {
+          const p = u.pathname.replace(/^\/+/, "").split("/");
+          if (p.length >= 2) return `${p[0]}/${p[1]}`;
+        }
+      } catch {}
+      const m = s.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
+      return m ? `${m[1]}/${m[2]}` : null;
+    };
+
+    const clearUI = () => {
+      err.style.display = "none";
+      table.style.display = "none";
+      cells.forEach(id => document.getElementById(id).textContent = "");
+    };
+
+    f.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      clearUI();
+
+      const repo = parseRepo(repoInput.value);
+      if (!repo) {
+        err.textContent = "Please enter a valid GitHub repository (owner/repo or full URL).";
+        err.style.display = "block";
+        return;
       }
 
+      btn.disabled = true; btn.textContent = "Checking…";
+      const base = `https://api.github.com/repos/${repo}`;
+
       try {
+        // check if repo exists first
+        const baseRes = await fetch(base);
+        if (baseRes.status === 404) {
+          err.textContent = "Repository not found.";
+          err.style.display = "block";
+          return;
+        }
+        if (!baseRes.ok) {
+          err.textContent = `GitHub API error: ${baseRes.status} ${baseRes.statusText}`;
+          err.style.display = "block";
+          return;
+        }
+
+        table.style.display = "table";
+
         // LICENSE
         const license = await fetch(`${base}/license`);
-        mark("license", license.ok);
+        document.getElementById("license").appendChild(badge(license.ok));
 
         // README
         const readme = await fetch(`${base}/readme`);
-        mark("readme", readme.ok);
+        document.getElementById("readme").appendChild(badge(readme.ok));
 
         // .gitignore
-        const gitignore = await fetch(`${base}/contents/.gitignore`);
-        mark("gitignore", gitignore.ok);
+        const gi = await fetch(`${base}/contents/.gitignore`);
+        document.getElementById("gitignore").appendChild(badge(gi.ok));
 
-        // Commit activity
+        // check for commit of 6 months or less
+        let commitOk = false;
         const commits = await fetch(`${base}/commits?per_page=1`);
         if (commits.ok) {
           const data = await commits.json();
-          const lastCommit = new Date(data[0].commit.author.date);
-          const sixMonthsAgo = new Date();
-          sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-          mark("commit", lastCommit > sixMonthsAgo);
-        } else {
-          mark("commit", false);
+          if (Array.isArray(data) && data.length) {
+            const last = new Date(data[0].commit.author.date);
+            const sixMo = new Date(); sixMo.setMonth(sixMo.getMonth() - 6);
+            commitOk = last > sixMo;
+          }
         }
+        document.getElementById("commit").appendChild(badge(commitOk));
 
-        // GitHub Actions
+        // Workflows
         const actions = await fetch(`${base}/contents/.github/workflows`);
-        mark("actions", actions.ok);
-      } catch (err) {
-        alert("Error fetching repo: " + err);
+        document.getElementById("actions").appendChild(badge(actions.ok));
+
+      } catch (e2) {
+        err.textContent = "Unexpected error: " + e2;
+        err.style.display = "block";
+      } finally {
+        btn.disabled = false; btn.textContent = "Check";
       }
-    }
+    });
   </script>
 </body>
 </html>
